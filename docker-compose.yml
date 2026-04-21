@@ -1,0 +1,186 @@
+# Football AI Platform — Docker Compose
+# ──────────────────────────────────────
+# Services:
+#   postgres   — PostgreSQL 16 (primary store; persistence via named volume)
+#   redis      — Redis 7 (cache + arq queue)
+#   api        — FastAPI backend on :8000 (blocks on postgres + redis healthchecks)
+#   worker     — arq background worker (backfill / sync / cache warm)
+#   dashboard  — Streamlit UI on :8501
+#   pipeline   — one-shot analytics processor (profile: pipeline)
+#   trainer    — one-shot model trainer (profile: training)
+#
+# Quick start (dev — ephemeral data):
+#   docker compose up api dashboard
+#
+# Full stack:
+#   docker compose --profile worker up
+#
+# Run migrations manually (first deploy or after a schema change):
+#   docker compose run --rm api alembic upgrade head
+#
+# The ``.env`` file (see ``.env.example``) is read for secrets — do NOT
+# commit a populated ``.env``.
+
+x-common-env: &common-env
+  PYTHONPATH: /app
+  PYTHONUNBUFFERED: "1"
+  ENVIRONMENT: ${ENVIRONMENT:-development}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://football_ai:football_ai@postgres:5432/football_ai}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  SECRET_KEY: ${SECRET_KEY:-dev-only-change-me-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}
+  API_FOOTBALL_KEY: ${API_FOOTBALL_KEY:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+
+x-app-volumes: &app-volumes
+  - ./data:/app/data
+  - ./models:/app/models
+  - ./logs:/app/logs
+  - ./configs:/app/configs
+
+services:
+
+  # ── Postgres ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: football_ai_postgres
+    environment:
+      POSTGRES_DB: football_ai
+      POSTGRES_USER: football_ai
+      POSTGRES_PASSWORD: football_ai
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      # pg_isready ships with the image and is the canonical readiness probe.
+      test: ["CMD-SHELL", "pg_isready -U football_ai -d football_ai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: football_ai_redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ── FastAPI REST backend ───────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      target: runtime
+    container_name: football_ai_api
+    # Run the schema migration before serving: fresh volumes need the schema,
+    # existing volumes are a no-op. We intentionally do NOT auto-generate
+    # migrations here — those go through the dev workflow.
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn football_ai.api.main:app
+             --host 0.0.0.0 --port 8000
+             --workers ${API_WORKERS:-2}
+             --log-level ${LOG_LEVEL:-info}"
+    environment:
+      <<: *common-env
+    volumes: *app-volumes
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    healthcheck:
+      # /health/ready pings DB + cache, so k8s/compose will only mark the
+      # container healthy once the pipes end-to-end work.
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  # ── arq background worker ─────────────────────────────────────────────────
+  # Separate service so restart loops on the worker don't flap the API.
+  worker:
+    build:
+      context: .
+      target: runtime
+    container_name: football_ai_worker
+    profiles: ["worker"]
+    command: ["arq", "football_ai.tasks.worker.WorkerSettings"]
+    environment:
+      <<: *common-env
+    volumes: *app-volumes
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    restart: unless-stopped
+
+  # ── Streamlit dashboard ────────────────────────────────────────────────────
+  dashboard:
+    build:
+      context: .
+      target: runtime
+    container_name: football_ai_dashboard
+    command: >
+      streamlit run football_ai/dashboard/app.py
+      --server.address 0.0.0.0
+      --server.port 8501
+      --server.headless true
+      --browser.gatherUsageStats false
+    environment:
+      <<: *common-env
+    volumes: *app-volumes
+    ports:
+      - "${DASHBOARD_PORT:-8501}:8501"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── One-shot pipeline runner ───────────────────────────────────────────────
+  pipeline:
+    build:
+      context: .
+      target: runtime
+    container_name: football_ai_pipeline
+    profiles: ["pipeline"]
+    command: >
+      python scripts/run_pipeline.py
+      --input /app/data/raw/${INPUT_CSV:-fus_FAR.csv}
+      --force
+    environment:
+      <<: *common-env
+    volumes: *app-volumes
+    restart: "no"
+
+  # ── One-shot model trainer ─────────────────────────────────────────────────
+  trainer:
+    build:
+      context: .
+      target: runtime
+    container_name: football_ai_trainer
+    profiles: ["training"]
+    command: >
+      python scripts/train_models.py
+      --force
+    environment:
+      <<: *common-env
+    volumes: *app-volumes
+    restart: "no"
+
+volumes:
+  pgdata:
+  redisdata:

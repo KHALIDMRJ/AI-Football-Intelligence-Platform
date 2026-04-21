@@ -1,0 +1,78 @@
+project:
+  name: "Football AI Platform"
+  version: "0.1.0"
+  environment: "development"  # development | staging | production
+
+paths:
+  data_raw: "data/raw"
+  data_processed: "data/processed"
+  data_features: "data/features"
+  models: "models"
+  logs: "logs"
+
+pitch:
+  length: 120.0      # metres (StatsBomb standard)
+  width: 80.0
+  goal_x: 120.0
+  goal_y: 40.0
+  goal_post_top: 44.0
+  goal_post_bottom: 36.0
+  zones_x: 18        # horizontal grid cells for xT
+  zones_y: 12        # vertical grid cells for xT
+
+possession:
+  max_gap_seconds: 5.0   # max seconds between actions before new possession
+  min_chain_length: 2    # minimum passes to constitute a chain
+  max_chain_length: 5    # maximum passes in a chain
+
+vaep:
+  k_actions: 10          # look-ahead window for scoring / conceding
+  min_minutes_for_per90: 20  # minimum minutes to compute VAEP/90
+
+models:
+  xg:
+    type: "logistic_regression"
+    max_iter: 1000
+    C: 1.0
+  p_scores:
+    type: "xgboost"
+    n_estimators: 300
+    max_depth: 5
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    eval_metric: "logloss"
+    early_stopping_rounds: 20
+  p_concedes:
+    type: "catboost"
+    iterations: 300
+    depth: 5
+    learning_rate: 0.05
+    loss_function: "Logloss"
+    eval_metric: "AUC"
+    early_stopping_rounds: 20
+  xt:
+    type: "markov"
+    zones_x: 18
+    zones_y: 12
+    smoothing: 1.0   # Laplace smoothing count
+
+training:
+  test_size: 0.2
+  random_state: 42
+  cv_folds: 5
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  reload: true
+  workers: 1
+
+dashboard:
+  port: 8501
+  theme: "light"
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+  datefmt: "%Y-%m-%d %H:%M:%S"

@@ -1,0 +1,65 @@
+# Logging configuration for the Football AI Platform.
+# Loaded by football_ai/logger.py at startup.
+#
+# In production (ENVIRONMENT=production), the console handler
+# switches to JSON output for log aggregators (Datadog, CloudWatch, etc.).
+
+version: 1
+disable_existing_loggers: false
+
+formatters:
+  standard:
+    format: "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+
+  detailed:
+    format: "%(asctime)s | %(levelname)-8s | %(name)s | %(funcName)s:%(lineno)d | %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+
+  json:
+    # Simple JSON-like format — replace with python-json-logger in production
+    format: >-
+      {"time":"%(asctime)s","level":"%(levelname)s",
+      "logger":"%(name)s","msg":"%(message)s"}
+    datefmt: "%Y-%m-%dT%H:%M:%S"
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: DEBUG
+    formatter: standard
+    stream: ext://sys.stdout
+
+  file:
+    class: logging.handlers.RotatingFileHandler
+    level: INFO
+    formatter: detailed
+    filename: logs/football_ai.log
+    maxBytes: 10_485_760   # 10 MB
+    backupCount: 5
+    encoding: utf-8
+
+loggers:
+  football_ai:
+    level: DEBUG
+    handlers: [console, file]
+    propagate: false
+
+  uvicorn:
+    level: INFO
+    handlers: [console]
+    propagate: false
+
+  uvicorn.access:
+    level: WARNING
+    handlers: [console]
+    propagate: false
+
+  streamlit:
+    level: WARNING
+    handlers: [console]
+    propagate: false
+
+root:
+  level: WARNING
+  handlers: [console]

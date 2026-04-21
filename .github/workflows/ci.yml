@@ -1,0 +1,88 @@
+# CI — lint + test + coverage gate.
+#
+# We deliberately don't run pytest against real Postgres/Redis on CI.
+# The suite's conftest spins up an aiosqlite-in-memory DB and overrides
+# the cache to InMemoryCache (see ``tests/conftest.py``), so every
+# backend-behavior test runs without docker-in-CI latency. If integration
+# with the real services ever regresses, the docker-compose smoke test
+# below (``docker compose up``) catches it before release.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # Don't pile up builds on rapid pushes — cancel superseded runs.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install ruff
+        run: pip install "ruff==0.15.11" --quiet
+      - name: Lint
+        run: ruff check football_ai tests scripts
+
+  test:
+    name: Test (pytest + coverage)
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install project + dev extras
+        # pyproject.toml declares the runtime deps; [dev] pulls pytest + cov
+        # + respx + prometheus_client so the full test surface runs.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Run pytest with coverage gate
+        # The gate lives in pyproject.toml ([tool.coverage.report] fail_under).
+        # Running with --cov triggers it, so a below-floor branch coverage
+        # fails the build independently of any test outcome.
+        run: pytest tests/ --cov=football_ai --cov-report=term --cov-report=xml
+      - name: Upload coverage artefact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          retention-days: 14
+
+  docker-build:
+    # Builds the image on PRs but doesn't push — validates the Dockerfile
+    # still works after a change without spending any registry bandwidth.
+    name: Docker build (validate)
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build runtime image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: runtime
+          push: false
+          tags: football-ai:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

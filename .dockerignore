@@ -1,0 +1,61 @@
+# .dockerignore — keep the build context (and resulting image) lean.
+#
+# Docker hashes the entire build context on every build. Shipping a 500 MB
+# data/ directory here would invalidate every layer cache on any change
+# inside data/, so excluding it keeps incremental rebuilds fast.
+
+# Version control + editor noise
+.git
+.gitignore
+.github
+.gitattributes
+.idea
+.vscode
+.claude
+.agent
+
+# Python byte-compiled + caches
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+*.egg
+.Python
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.tox
+.coverage
+.coverage.*
+htmlcov
+coverage.xml
+
+# Local virtualenvs
+venv
+.venv
+env
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Tests + their fixtures — production image doesn't run pytest
+tests/
+pytest.ini
+
+# Data + trained artefacts — mounted at runtime, must never bake in
+data/
+models/
+logs/
+*.sqlite
+*.sqlite3
+*.db
+
+# Streamlit config
+.streamlit/
+
+# Docs / project scaffolding that doesn't belong in the image
+docs/
+*.md
+!README.md
