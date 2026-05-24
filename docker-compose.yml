@@ -31,6 +31,7 @@ x-common-env: &common-env
   SECRET_KEY: ${SECRET_KEY:-dev-only-change-me-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}
   API_FOOTBALL_KEY: ${API_FOOTBALL_KEY:-}
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
   ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
 
 x-app-volumes: &app-volumes

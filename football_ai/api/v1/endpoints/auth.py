@@ -43,6 +43,7 @@ from football_ai.core.security import (
     verify_password,
 )
 from football_ai.crud import user as user_crud
+from football_ai.ratelimit import rate_limit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -61,6 +62,7 @@ def _token_response(user) -> TokenResponse:
     response_model=UserOut,
     status_code=status.HTTP_201_CREATED,
     summary="Create a new free_user account",
+    dependencies=[Depends(rate_limit(per_minute=5, burst=10, namespace="auth_register"))],
 )
 async def register(
     payload: UserCreate,
@@ -86,6 +88,7 @@ async def register(
     "/login",
     response_model=TokenResponse,
     summary="Exchange email + password for access + refresh tokens",
+    dependencies=[Depends(rate_limit(per_minute=10, burst=20, namespace="auth_login"))],
 )
 async def login(
     form: Annotated[OAuth2PasswordRequestForm, Depends()],
@@ -107,6 +110,7 @@ async def login(
     "/refresh",
     response_model=TokenResponse,
     summary="Rotate an access token using a valid refresh token",
+    dependencies=[Depends(rate_limit(per_minute=20, burst=30, namespace="auth_refresh"))],
 )
 async def refresh(
     payload: RefreshRequest,

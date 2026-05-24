@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from football_ai.models.user import SubscriptionTier, UserRole
 
@@ -14,6 +14,24 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     full_name: str | None = Field(None, max_length=255)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return value.strip().lower() if isinstance(value, str) else value
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_strength(cls, value: str) -> str:
+        if value != value.strip():
+            raise ValueError("Password must not start or end with whitespace.")
+        if not any(c.isupper() for c in value):
+            raise ValueError("Password must include at least one uppercase letter.")
+        if not any(c.islower() for c in value):
+            raise ValueError("Password must include at least one lowercase letter.")
+        if not any(c.isdigit() for c in value):
+            raise ValueError("Password must include at least one number.")
+        return value
 
 
 class UserLogin(BaseModel):

@@ -249,6 +249,12 @@ class PlatformSettings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-haiku-4-5-20251001"
 
+    # Gemini is used only server-side as a chat/comparison proxy. Never expose
+    # this through NEXT_PUBLIC_* because browser keys are trivially copied.
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash"
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+
     # ── CORS / hosts ───────────────────────────────────────────────────────────
     allowed_origins: list[str] = Field(default_factory=lambda: ["*"])
 
